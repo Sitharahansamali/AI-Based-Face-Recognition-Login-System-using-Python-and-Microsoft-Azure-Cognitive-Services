@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="card">
+<h2>Auto Face Login</h2>
+<video id="video" autoplay></video>
+<p id="status">Scanning...</p>
+<p id="result"></p>
+</div>
+
+<canvas id="canvas" style="display:none;"></canvas>
+
+<script>
+const video = document.getElementById('video');
+navigator.mediaDevices.getUserMedia({ video: true })
+.then(stream => video.srcObject = stream);
+
+let scanning = true;
+
+async function scan(){
+if(!scanning) return;
+
+let canvas=document.getElementById('canvas');
+let ctx=canvas.getContext('2d');
+
+canvas.width=video.videoWidth;
+canvas.height=video.videoHeight;
+
+ctx.drawImage(video,0,0);
+
+canvas.toBlob(async function(blob){
+let fd=new FormData();
+fd.append('image',blob);
+
+let res=await fetch('/login',{method:'POST',body:fd});
+let text=await res.text();
+
+if(text.includes("Welcome")){
+scanning=false;
+document.getElementById('status').innerText="✅ Recognized";
+document.getElementById('result').innerText=text;
+}
+},'image/jpeg');
+
+}
+
+setInterval(scan,3000);
+</script>
+
+</body>
+</html>
