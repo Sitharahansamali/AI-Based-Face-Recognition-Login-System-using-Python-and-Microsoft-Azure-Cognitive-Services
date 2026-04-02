@@ -146,31 +146,48 @@ def login_page():
 @app.route('/register', methods=['POST'])
 def register():
     name = request.form.get('name', '').strip()
-    file = request.files.get('image')
+    files = request.files.getlist('images')
+    single_file = request.files.get('image')
 
     if not name:
         return jsonify(success=False, name=None, message="Name is required")
-    if not file or file.filename == '':
-        return jsonify(success=False, name=None, message="No file selected")
-
-    img_bgr = decode_upload(file)
-    face = extract_largest_face(img_bgr)
-
-    if face is None:
-        return jsonify(success=False, name=None, message="No face detected ❌")
 
     person = safe_name(name)
     person_dir = os.path.join(FACES_DIR, person)
     os.makedirs(person_dir, exist_ok=True)
 
-    sample_path = os.path.join(person_dir, f"{int(time.time() * 1000)}.png")
-    cv2.imwrite(sample_path, face)
+    saved_count = 0
+
+    # Handle multi-frame from webcam (auto-capture)
+    if files and len(files) > 0:
+        for idx, file in enumerate(files):
+            if file and file.filename != '':
+                img_bgr = decode_upload(file)
+                face = extract_largest_face(img_bgr)
+                if face is not None:
+                    sample_path = os.path.join(person_dir, f"{int(time.time() * 1000)}_{idx}.png")
+                    cv2.imwrite(sample_path, face)
+                    saved_count += 1
+    # Handle single file upload
+    elif single_file and single_file.filename != '':
+        img_bgr = decode_upload(single_file)
+        face = extract_largest_face(img_bgr)
+        if face is None:
+            return jsonify(success=False, name=None, message="No face detected ❌")
+        sample_path = os.path.join(person_dir, f"{int(time.time() * 1000)}.png")
+        cv2.imwrite(sample_path, face)
+        saved_count = 1
+    else:
+        return jsonify(success=False, name=None, message="No file selected")
+
+    if saved_count == 0:
+        return jsonify(success=False, name=person, message="No faces detected in any image ❌")
 
     ok, message = retrain_model()
     if not ok:
         return jsonify(success=False, name=person, message=message)
 
-    return jsonify(success=True, name=person, message=f"{person} registered successfully ✅")
+    return jsonify(success=True, name=person, message=f"{person} registered with {saved_count} samples! ✅")
 
 # ---------------- LOGIN ----------------
 @app.route('/login', methods=['POST'])

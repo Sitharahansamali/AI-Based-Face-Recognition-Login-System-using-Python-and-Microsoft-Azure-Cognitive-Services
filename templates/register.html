@@ -19,21 +19,26 @@
                     <input type="text" id="name" name="name" placeholder="Enter your full name" required>
                 </div>
                 
-                <div style="margin-bottom: 20px;">
-                    <button type="button" id="toggleWebcam" class="btn btn-secondary" style="width: 100%;">📷 Use Webcam</button>
-                </div>
-                
-                <!-- Webcam Section -->
+                <!-- Webcam Auto-Capture Section -->
                 <div id="webcamSection" style="display: none; margin-bottom: 20px;">
                     <video id="webcamVideo" autoplay playsinline style="width: 100%; max-width: 350px; border-radius: 15px; margin-bottom: 10px;"></video>
-                    <button type="button" id="captureBtn" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;">📸 Capture Photo</button>
-                    <button type="button" id="retakeBtn" class="btn btn-secondary" style="width: 100%;">🔄 Retake</button>
+                    <div id="captureStatus" style="text-align: center; margin-bottom: 15px; font-weight: 600; color: #667eea;">
+                        📸 Ready to capture
+                    </div>
+                    <button type="button" id="startCaptureBtn" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;">🎬 Start Capturing (5 frames)</button>
+                    <button type="button" id="cancelCaptureBtn" class="btn btn-secondary" style="width: 100%; display: none;">❌ Cancel</button>
                     <canvas id="canvas" style="display: none;"></canvas>
-                    <img id="capturedImage" style="display: none; width: 100%; max-width: 350px; border-radius: 15px; margin-top: 10px;">
                 </div>
                 
                 <!-- File Upload Section -->
-                <div id="fileSection">
+                <div id="fileSection" style="margin-bottom: 20px;">
+                    <div style="margin-bottom: 20px;">
+                        <button type="button" id="toggleWebcam" class="btn btn-secondary" style="width: 100%;">📷 Use Webcam (Auto-Capture)</button>
+                    </div>
+                </div>
+                
+                <!-- Alternative File Upload -->
+                <div id="fileUploadSection">
                     <div class="form-group">
                         <label for="image">🖼️ Or Upload Photo</label>
                         <input type="file" id="image" name="image" accept="image/*">
@@ -51,19 +56,23 @@
     
     <script>
         let webcamStream = null;
-        let capturedImageBlob = null;
+        let capturedFrames = [];
+        let isCapturing = false;
         const video = document.getElementById('webcamVideo');
         const canvas = document.getElementById('canvas');
-        const capturedImage = document.getElementById('capturedImage');
         const toggleBtn = document.getElementById('toggleWebcam');
-        const captureBtn = document.getElementById('captureBtn');
-        const retakeBtn = document.getElementById('retakeBtn');
+        const startCaptureBtn = document.getElementById('startCaptureBtn');
+        const cancelCaptureBtn = document.getElementById('cancelCaptureBtn');
+        const captureStatus = document.getElementById('captureStatus');
         const webcamSection = document.getElementById('webcamSection');
         const fileSection = document.getElementById('fileSection');
+        const fileUploadSection = document.getElementById('fileUploadSection');
         const fileInput = document.getElementById('image');
         const nameInput = document.getElementById('name');
         const form = document.getElementById('registerForm');
         const messageEl = document.getElementById('message');
+        const FRAMES_TO_CAPTURE = 5;
+        const FRAME_INTERVAL = 800;
 
         // Toggle between webcam and file upload
         toggleBtn.addEventListener('click', async (e) => {
@@ -74,7 +83,7 @@
                     webcamStream = await navigator.mediaDevices.getUserMedia({ video: true });
                     video.srcObject = webcamStream;
                     webcamSection.style.display = 'block';
-                    fileSection.style.display = 'none';
+                    fileUploadSection.style.display = 'none';
                     toggleBtn.textContent = '🖼️ Use Photo Instead';
                     fileInput.removeAttribute('required');
                 } catch (err) {
@@ -87,45 +96,66 @@
                     webcamStream.getTracks().forEach(track => track.stop());
                 }
                 webcamSection.style.display = 'none';
-                fileSection.style.display = 'block';
-                toggleBtn.textContent = '📷 Use Webcam';
+                fileUploadSection.style.display = 'block';
+                toggleBtn.textContent = '📷 Use Webcam (Auto-Capture)';
                 fileInput.setAttribute('required', 'required');
-                capturedImageBlob = null;
-                capturedImage.style.display = 'none';
+                capturedFrames = [];
             }
         });
 
-        // Capture photo from webcam
-        captureBtn.addEventListener('click', (e) => {
+        // Start auto-capturing frames
+        startCaptureBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            const ctx = canvas.getContext('2d');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0);
-
-            canvas.toBlob((blob) => {
-                capturedImageBlob = blob;
-                capturedImage.src = URL.createObjectURL(blob);
-                capturedImage.style.display = 'block';
-                video.style.display = 'none';
-                captureBtn.style.display = 'none';
-                retakeBtn.style.display = 'inline-block';
-                messageEl.textContent = '✅ Photo captured successfully!';
-                messageEl.className = 'success';
-            }, 'image/jpeg', 0.95);
+            if (isCapturing) return;
+            capturedFrames = [];
+            isCapturing = true;
+            startCaptureBtn.style.display = 'none';
+            cancelCaptureBtn.style.display = 'inline-block';
+            captureMultipleFrames();
         });
 
-        // Retake photo
-        retakeBtn.addEventListener('click', (e) => {
+        // Cancel capturing
+        cancelCaptureBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            capturedImageBlob = null;
-            capturedImage.style.display = 'none';
-            video.style.display = 'block';
-            captureBtn.style.display = 'inline-block';
-            retakeBtn.style.display = 'none';
-            messageEl.textContent = '';
+            isCapturing = false;
+            capturedFrames = [];
+            startCaptureBtn.style.display = 'inline-block';
+            cancelCaptureBtn.style.display = 'none';
+            captureStatus.textContent = '📸 Ready to capture';
             messageEl.className = '';
         });
+
+        // Capture frames at intervals
+        function captureMultipleFrames() {
+            const ctx = canvas.getContext('2d');
+            let frameCount = 0;
+
+            const intervalId = setInterval(() => {
+                if (!isCapturing || frameCount >= FRAMES_TO_CAPTURE) {
+                    clearInterval(intervalId);
+                    if (frameCount === FRAMES_TO_CAPTURE) {
+                        isCapturing = false;
+                        startCaptureBtn.style.display = 'inline-block';
+                        cancelCaptureBtn.style.display = 'none';
+                        captureStatus.textContent = `✅ Captured ${frameCount} frames!`;
+                        messageEl.textContent = `✅ ${frameCount} face samples ready for registration`;
+                        messageEl.className = 'success';
+                    }
+                    return;
+                }
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0);
+
+                canvas.toBlob((blob) => {
+                    capturedFrames.push(blob);
+                    frameCount++;
+                    const remaining = FRAMES_TO_CAPTURE - frameCount;
+                    captureStatus.textContent = `📸 Captured ${frameCount}/${FRAMES_TO_CAPTURE} (${remaining} more)`;
+                }, 'image/jpeg', 0.95);
+            }, FRAME_INTERVAL);
+        }
 
         // Form submission
         form.addEventListener('submit', async (e) => {
@@ -140,9 +170,9 @@
                 return;
             }
 
-            // Check if we have either webcam image or file upload
-            if (!capturedImageBlob && !fileInput.files.length) {
-                messageEl.textContent = '❌ Please capture a photo or upload an image';
+            // Check if we have webcam frames or file upload
+            if (capturedFrames.length === 0 && fileInput.files.length === 0) {
+                messageEl.textContent = '❌ Please capture at least one frame or upload an image';
                 messageEl.className = 'error';
                 return;
             }
@@ -150,8 +180,10 @@
             const formData = new FormData();
             formData.append('name', name);
 
-            if (capturedImageBlob) {
-                formData.append('image', capturedImageBlob, 'captured.jpg');
+            if (capturedFrames.length > 0) {
+                capturedFrames.forEach((blob, idx) => {
+                    formData.append('images', blob, `frame_${idx}.jpg`);
+                });
             } else {
                 formData.append('image', fileInput.files[0]);
             }
