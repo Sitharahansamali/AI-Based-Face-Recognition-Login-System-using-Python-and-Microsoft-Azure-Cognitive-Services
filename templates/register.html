@@ -9,17 +9,17 @@
 <body>
     <div class="container">
         <div class="card">
-            <div class="icon">📸</div>
+            <div class="icon">FR</div>
             <h2>Register Your Face</h2>
             <p class="subtitle">Create your facial recognition profile</p>
             
             <form id="registerForm" enctype="multipart/form-data">
                 <div class="form-group">
-                    <label for="name">👤 Full Name</label>
+                    <label for="name">Full Name</label>
                     <input type="text" id="name" name="name" placeholder="Enter your full name" required>
                 </div>
                 <div class="form-group">
-                    <label for="email">📧 Email</label>
+                    <label for="email">Email</label>
                     <input type="email" id="email" name="email" placeholder="Enter your email" required>
                 </div>
                 
@@ -27,22 +27,22 @@
                 <div id="webcamSection" style="display: none; margin-bottom: 20px;">
                     <video id="webcamVideo" autoplay playsinline style="width: 100%; max-width: 350px; border-radius: 15px; margin-bottom: 10px;"></video>
                     <div id="angleInstruction" style="text-align: center; margin-bottom: 10px; font-weight: 700; color: #667eea; font-size: 1.1em;">
-                        📍 Ready to capture
+                        Ready to capture
                     </div>
                     <div id="captureStatus" style="text-align: center; margin-bottom: 15px; font-weight: 600; color: #888;">
                         Press Start to begin capturing from 5 angles
                     </div>
-                    <button type="button" id="startCaptureBtn" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;">🎬 Start Capturing (5 angles)</button>
-                    <button type="button" id="cancelCaptureBtn" class="btn btn-secondary" style="width: 100%; display: none;">❌ Cancel</button>
+                    <button type="button" id="startCaptureBtn" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;">Start Capturing (5 angles)</button>
+                    <button type="button" id="cancelCaptureBtn" class="btn btn-secondary" style="width: 100%; display: none;">Cancel</button>
                     <canvas id="canvas" style="display: none;"></canvas>
                 </div>
                 
                 <!-- Webcam Auto-Capture Instructions -->
                 <div style="margin-bottom: 20px;">
-                    <small style="color: #888; display: block; margin-bottom: 10px;">📌 Position your face clearly in the webcam for best results</small>
+                    <small style="color: #888; display: block; margin-bottom: 10px;">Position your face clearly in the webcam for best results</small>
                 </div>
                 
-                <button type="submit" id="submitBtn" class="btn btn-primary" style="width: 100%;">✅ Register</button>
+                <button type="submit" id="submitBtn" class="btn btn-primary" style="width: 100%;">Register</button>
             </form>
             
             <p id="message"></p>
@@ -68,11 +68,11 @@
         const FRAMES_TO_CAPTURE = 5;
         const COUNTDOWN_SECONDS = 3;
         const ANGLES = [
-            { name: '⬆️ Face Forward', prompt: 'Look straight at the camera' },
-            { name: '↙️ Turn Slightly Left', prompt: 'Turn your face slightly to the left' },
-            { name: '⬅️ Turn Left', prompt: 'Turn your face more to the left side' },
-            { name: '↗️ Turn Slightly Right', prompt: 'Turn your face slightly to the right' },
-            { name: '➡️ Turn Right', prompt: 'Turn your face more to the right side' }
+            { name: 'Face Forward', prompt: 'Look straight at the camera' },
+            { name: 'Turn Slightly Left', prompt: 'Turn your face slightly to the left' },
+            { name: 'Turn Left', prompt: 'Turn your face more to the left side' },
+            { name: 'Turn Slightly Right', prompt: 'Turn your face slightly to the right' },
+            { name: 'Turn Right', prompt: 'Turn your face more to the right side' }
         ];
 
         function sleep(ms) {
@@ -108,7 +108,7 @@
                 video.srcObject = webcamStream;
                 webcamSection.style.display = 'block';
             } catch (err) {
-                messageEl.textContent = '❌ Camera access denied: ' + err.message;
+                messageEl.textContent = 'Camera access denied: ' + err.message;
                 messageEl.className = 'error';
             }
         })();
@@ -132,7 +132,7 @@
             capturedFrames = [];
             startCaptureBtn.style.display = 'inline-block';
             cancelCaptureBtn.style.display = 'none';
-            angleInstruction.textContent = '📍 Ready to capture';
+            angleInstruction.textContent = 'Ready to capture';
             captureStatus.textContent = 'Press Start to begin capturing from 5 angles';
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel();
@@ -185,9 +185,9 @@
             isCapturing = false;
             startCaptureBtn.style.display = 'inline-block';
             cancelCaptureBtn.style.display = 'none';
-            angleInstruction.textContent = '✅ All angles captured!';
+            angleInstruction.textContent = 'All angles captured';
             captureStatus.textContent = capturedFrames.length + ' face angles ready for registration';
-            messageEl.textContent = '✅ ' + capturedFrames.length + ' multi-angle face samples ready!';
+            messageEl.textContent = capturedFrames.length + ' multi-angle face samples ready.';
             messageEl.className = 'success';
             speak('All photos captured. You can now register.');
         }
@@ -195,26 +195,26 @@
         // Form submission
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            messageEl.textContent = '⏳ Processing...';
+            messageEl.textContent = 'Processing...';
             messageEl.className = '';
 
             const name = nameInput.value.trim();
             const email = emailInput.value.trim();
             if (!name) {
-                messageEl.textContent = '❌ Please enter your name';
+                messageEl.textContent = 'Please enter your name';
                 messageEl.className = 'error';
                 return;
             }
 
             if (!email) {
-                messageEl.textContent = '❌ Please enter your email';
+                messageEl.textContent = 'Please enter your email';
                 messageEl.className = 'error';
                 return;
             }
 
             // Check if we have webcam frames
             if (capturedFrames.length === 0) {
-                messageEl.textContent = '❌ Please capture 5 frames using the webcam';
+                messageEl.textContent = 'Please capture 5 frames using the webcam';
                 messageEl.className = 'error';
                 return;
             }
@@ -231,15 +231,15 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    messageEl.textContent = '✅ ' + data.message;
+                    messageEl.textContent = data.message;
                     messageEl.className = 'success';
                     setTimeout(() => window.location.href = '/', 2000);
                 } else {
-                    messageEl.textContent = '❌ ' + (data.message || 'Registration failed');
+                    messageEl.textContent = data.message || 'Registration failed';
                     messageEl.className = 'error';
                 }
             } catch (err) {
-                messageEl.textContent = '❌ Error: ' + err.message;
+                messageEl.textContent = 'Error: ' + err.message;
                 messageEl.className = 'error';
             }
         });

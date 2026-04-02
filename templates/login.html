@@ -9,18 +9,18 @@
 <body>
     <div class="container">
         <div class="card">
-            <div class="icon">📹</div>
+            <div class="icon">FR</div>
             <h2>Face Login</h2>
             <p class="subtitle">Align your face with the camera</p>
 
             <div class="form-group" style="text-align: left; margin-bottom: 15px;">
-                <label for="email">📧 Registered Email</label>
+                <label for="email">Registered Email</label>
                 <input type="email" id="email" name="email" placeholder="Enter your registered email" required>
             </div>
             
             <video id="video" autoplay playsinline></video>
             
-            <p id="status">🔍 Scanning your face...</p>
+            <p id="status">Scanning your face...</p>
             <p id="result"></p>
             
             <a href="/" class="btn btn-back">← Cancel</a>
@@ -35,7 +35,7 @@
         navigator.mediaDevices.getUserMedia({ video: true })
         .then(stream => video.srcObject = stream)
         .catch(err => {
-            document.getElementById('status').textContent = '❌ Camera access denied';
+            document.getElementById('status').textContent = 'Camera access denied';
         });
 
         let scanning = true;
@@ -45,7 +45,7 @@
 
             const email = emailInput.value.trim();
             if (!email) {
-                document.getElementById('status').innerText = '📧 Enter your email to start login';
+                document.getElementById('status').innerText = 'Enter your email to start login';
                 document.getElementById('result').innerText = '';
                 return;
             }
@@ -68,11 +68,11 @@
 
                 if(data.success){
                     scanning=false;
-                    document.getElementById('status').innerText="✅ Recognized";
+                    document.getElementById('status').innerText="Recognized";
                     document.getElementById('result').innerText=data.message;
                     setTimeout(() => window.location.href = '/', 1500);
                 } else {
-                    document.getElementById('status').innerText="🔍 Scanning your face...";
+                    document.getElementById('status').innerText="Scanning your face...";
                     document.getElementById('result').innerText=data.message || '';
                 }
             },'image/jpeg');

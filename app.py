@@ -208,7 +208,7 @@ def register():
                 saved_count += 1
 
     if saved_count == 0:
-        return jsonify(success=False, name=person, message="No faces detected in captured frames ❌")
+        return jsonify(success=False, name=person, message="No faces detected in captured frames")
 
     ok, message = retrain_model()
     if not ok:
@@ -222,7 +222,7 @@ def register():
     }
     save_users(users)
 
-    return jsonify(success=True, name=name, message=f"{name} registered with {saved_count} samples! ✅")
+    return jsonify(success=True, name=name, message=f"{name} registered with {saved_count} samples")
 
 # ---------------- LOGIN ----------------
 @app.route('/login', methods=['POST'])
@@ -267,10 +267,10 @@ def login():
                     success=True,
                     name=display_name,
                     confidence=confidence,
-                    message=f"Welcome {display_name}! ✅"
+                    message=f"Welcome {display_name}"
                 )
 
-            return jsonify(success=False, name=None, confidence=confidence, message="User not recognized ❌")
+            return jsonify(success=False, name=None, confidence=confidence, message="User not recognized")
 
     if not os.path.exists(EMBEDDINGS_PATH):
         return jsonify(success=False, message="No trained model found. Please register first.")
@@ -294,10 +294,10 @@ def login():
             success=True,
             name=display_name,
             confidence=best_distance,
-            message=f"Welcome {display_name}! ✅"
+            message=f"Welcome {display_name}"
         )
 
-    return jsonify(success=False, name=None, confidence=best_distance, message="User not recognized ❌")
+    return jsonify(success=False, name=None, confidence=best_distance, message="User not recognized")
 
 
 @app.route('/logout')
