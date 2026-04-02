@@ -61,14 +61,40 @@
         const form = document.getElementById('registerForm');
         const messageEl = document.getElementById('message');
         const FRAMES_TO_CAPTURE = 5;
-        const FRAME_INTERVAL = 1500;
+        const COUNTDOWN_SECONDS = 3;
         const ANGLES = [
-            { name: '⬅️ Turn Left', emoji: '⬅️', side: 'left' },
-            { name: '↙️ Face Left', emoji: '↙️', side: 'left-front' },
-            { name: '⬆️ Face Forward', emoji: '⬆️', side: 'center' },
-            { name: '↗️ Face Right', emoji: '↗️', side: 'right-front' },
-            { name: '➡️ Turn Right', emoji: '➡️', side: 'right' }
+            { name: '⬆️ Face Forward', prompt: 'Look straight at the camera' },
+            { name: '↙️ Turn Slightly Left', prompt: 'Turn your face slightly to the left' },
+            { name: '⬅️ Turn Left', prompt: 'Turn your face more to the left side' },
+            { name: '↗️ Turn Slightly Right', prompt: 'Turn your face slightly to the right' },
+            { name: '➡️ Turn Right', prompt: 'Turn your face more to the right side' }
         ];
+
+        function sleep(ms) {
+            return new Promise((resolve) => setTimeout(resolve, ms));
+        }
+
+        function speak(text) {
+            if (!('speechSynthesis' in window)) {
+                return;
+            }
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.95;
+            utterance.pitch = 1.0;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function captureSingleFrame(ctx) {
+            return new Promise((resolve) => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0);
+                canvas.toBlob((blob) => {
+                    resolve(blob);
+                }, 'image/jpeg', 0.95);
+            });
+        }
 
         // Initialize webcam on page load
         (async () => {
@@ -90,6 +116,7 @@
             isCapturing = true;
             startCaptureBtn.style.display = 'none';
             cancelCaptureBtn.style.display = 'inline-block';
+            messageEl.textContent = '';
             captureMultipleFrames();
         });
 
@@ -102,49 +129,62 @@
             cancelCaptureBtn.style.display = 'none';
             angleInstruction.textContent = '📍 Ready to capture';
             captureStatus.textContent = 'Press Start to begin capturing from 5 angles';
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
             messageEl.className = '';
         });
 
-        // Capture frames from different angles with instructions
-        function captureMultipleFrames() {
+        // Capture frames from different angles with voice guidance and countdown.
+        async function captureMultipleFrames() {
             const ctx = canvas.getContext('2d');
-            let frameCount = 0;
-
-            const intervalId = setInterval(() => {
-                if (!isCapturing || frameCount >= FRAMES_TO_CAPTURE) {
-                    clearInterval(intervalId);
-                    if (frameCount === FRAMES_TO_CAPTURE) {
-                        isCapturing = false;
-                        startCaptureBtn.style.display = 'inline-block';
-                        cancelCaptureBtn.style.display = 'none';
-                        angleInstruction.textContent = '✅ All angles captured!';
-                        captureStatus.textContent = frameCount + ' face angles ready for registration';
-                        messageEl.textContent = '✅ ' + frameCount + ' multi-angle face samples ready!';
-                        messageEl.className = 'success';
-                    }
+            
+            for (let frameCount = 0; frameCount < FRAMES_TO_CAPTURE; frameCount++) {
+                if (!isCapturing) {
                     return;
                 }
 
-                // Update angle instruction
                 const currentAngle = ANGLES[frameCount];
                 angleInstruction.textContent = currentAngle.name;
+                captureStatus.textContent = 'Prepare for photo ' + (frameCount + 1) + '/' + FRAMES_TO_CAPTURE;
+                speak(currentAngle.prompt);
 
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                ctx.drawImage(video, 0, 0);
+                await sleep(800);
 
-                canvas.toBlob((blob) => {
-                    capturedFrames.push(blob);
-                    frameCount++;
-                    const remaining = FRAMES_TO_CAPTURE - frameCount;
-                    if (remaining > 0) {
-                        const nextAngle = ANGLES[frameCount];
-                        captureStatus.textContent = 'Captured ' + frameCount + '/' + FRAMES_TO_CAPTURE + ' - Next: ' + nextAngle.name;
-                    } else {
-                        captureStatus.textContent = 'Captured ' + frameCount + '/' + FRAMES_TO_CAPTURE;
+                for (let countdown = COUNTDOWN_SECONDS; countdown >= 1; countdown--) {
+                    if (!isCapturing) {
+                        return;
                     }
-                }, 'image/jpeg', 0.95);
-            }, FRAME_INTERVAL);
+                    captureStatus.textContent = 'Capturing photo ' + (frameCount + 1) + '/' + FRAMES_TO_CAPTURE + ' in ' + countdown;
+                    speak(String(countdown));
+                    await sleep(1000);
+                }
+
+                if (!isCapturing) {
+                    return;
+                }
+
+                const blob = await captureSingleFrame(ctx);
+                if (blob) {
+                    capturedFrames.push(blob);
+                    speak('Captured');
+                }
+
+                if (frameCount < FRAMES_TO_CAPTURE - 1) {
+                    const nextAngle = ANGLES[frameCount + 1];
+                    captureStatus.textContent = 'Captured ' + (frameCount + 1) + '/' + FRAMES_TO_CAPTURE + '. Next: ' + nextAngle.name;
+                    await sleep(700);
+                }
+            }
+
+            isCapturing = false;
+            startCaptureBtn.style.display = 'inline-block';
+            cancelCaptureBtn.style.display = 'none';
+            angleInstruction.textContent = '✅ All angles captured!';
+            captureStatus.textContent = capturedFrames.length + ' face angles ready for registration';
+            messageEl.textContent = '✅ ' + capturedFrames.length + ' multi-angle face samples ready!';
+            messageEl.className = 'success';
+            speak('All photos captured. You can now register.');
         }
 
         // Form submission
