@@ -30,20 +30,9 @@
                     <canvas id="canvas" style="display: none;"></canvas>
                 </div>
                 
-                <!-- File Upload Section -->
-                <div id="fileSection" style="margin-bottom: 20px;">
-                    <div style="margin-bottom: 20px;">
-                        <button type="button" id="toggleWebcam" class="btn btn-secondary" style="width: 100%;">📷 Use Webcam (Auto-Capture)</button>
-                    </div>
-                </div>
-                
-                <!-- Alternative File Upload -->
-                <div id="fileUploadSection">
-                    <div class="form-group">
-                        <label for="image">🖼️ Or Upload Photo</label>
-                        <input type="file" id="image" name="image" accept="image/*">
-                        <small style="color: #888; display: block; margin-top: 5px;">📌 Clear, well-lit photos work best</small>
-                    </div>
+                <!-- Webcam Auto-Capture Instructions -->
+                <div style="margin-bottom: 20px;">
+                    <small style="color: #888; display: block; margin-bottom: 10px;">📌 Position your face clearly in the webcam for best results</small>
                 </div>
                 
                 <button type="submit" id="submitBtn" class="btn btn-primary" style="width: 100%;">✅ Register</button>
@@ -60,48 +49,27 @@
         let isCapturing = false;
         const video = document.getElementById('webcamVideo');
         const canvas = document.getElementById('canvas');
-        const toggleBtn = document.getElementById('toggleWebcam');
         const startCaptureBtn = document.getElementById('startCaptureBtn');
         const cancelCaptureBtn = document.getElementById('cancelCaptureBtn');
         const captureStatus = document.getElementById('captureStatus');
         const webcamSection = document.getElementById('webcamSection');
-        const fileSection = document.getElementById('fileSection');
-        const fileUploadSection = document.getElementById('fileUploadSection');
-        const fileInput = document.getElementById('image');
         const nameInput = document.getElementById('name');
         const form = document.getElementById('registerForm');
         const messageEl = document.getElementById('message');
         const FRAMES_TO_CAPTURE = 5;
         const FRAME_INTERVAL = 800;
 
-        // Toggle between webcam and file upload
-        toggleBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            if (webcamSection.style.display === 'none') {
-                // Enable webcam
-                try {
-                    webcamStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    video.srcObject = webcamStream;
-                    webcamSection.style.display = 'block';
-                    fileUploadSection.style.display = 'none';
-                    toggleBtn.textContent = '🖼️ Use Photo Instead';
-                    fileInput.removeAttribute('required');
-                } catch (err) {
-                    messageEl.textContent = '❌ Camera access denied: ' + err.message;
-                    messageEl.className = 'error';
-                }
-            } else {
-                // Switch back to file upload
-                if (webcamStream) {
-                    webcamStream.getTracks().forEach(track => track.stop());
-                }
-                webcamSection.style.display = 'none';
-                fileUploadSection.style.display = 'block';
-                toggleBtn.textContent = '📷 Use Webcam (Auto-Capture)';
-                fileInput.setAttribute('required', 'required');
-                capturedFrames = [];
+        // Initialize webcam on page load
+        (async () => {
+            try {
+                webcamStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = webcamStream;
+                webcamSection.style.display = 'block';
+            } catch (err) {
+                messageEl.textContent = '❌ Camera access denied: ' + err.message;
+                messageEl.className = 'error';
             }
-        });
+        })();
 
         // Start auto-capturing frames
         startCaptureBtn.addEventListener('click', (e) => {
@@ -170,23 +138,18 @@
                 return;
             }
 
-            // Check if we have webcam frames or file upload
-            if (capturedFrames.length === 0 && fileInput.files.length === 0) {
-                messageEl.textContent = '❌ Please capture at least one frame or upload an image';
+            // Check if we have webcam frames
+            if (capturedFrames.length === 0) {
+                messageEl.textContent = '❌ Please capture 5 frames using the webcam';
                 messageEl.className = 'error';
                 return;
             }
 
             const formData = new FormData();
             formData.append('name', name);
-
-            if (capturedFrames.length > 0) {
-                capturedFrames.forEach((blob, idx) => {
-                    formData.append('images', blob, `frame_${idx}.jpg`);
-                });
-            } else {
-                formData.append('image', fileInput.files[0]);
-            }
+            capturedFrames.forEach((blob, idx) => {
+                formData.append('images', blob, `frame_${idx}.jpg`);
+            });
 
             try {
                 const res = await fetch('/register', {method: 'POST', body: formData});
