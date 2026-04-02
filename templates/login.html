@@ -12,6 +12,11 @@
             <div class="icon">📹</div>
             <h2>Face Login</h2>
             <p class="subtitle">Align your face with the camera</p>
+
+            <div class="form-group" style="text-align: left; margin-bottom: 15px;">
+                <label for="email">📧 Registered Email</label>
+                <input type="email" id="email" name="email" placeholder="Enter your registered email" required>
+            </div>
             
             <video id="video" autoplay playsinline></video>
             
@@ -26,6 +31,7 @@
 
     <script>
         const video = document.getElementById('video');
+        const emailInput = document.getElementById('email');
         navigator.mediaDevices.getUserMedia({ video: true })
         .then(stream => video.srcObject = stream)
         .catch(err => {
@@ -36,6 +42,13 @@
 
         async function scan(){
             if(!scanning) return;
+
+            const email = emailInput.value.trim();
+            if (!email) {
+                document.getElementById('status').innerText = '📧 Enter your email to start login';
+                document.getElementById('result').innerText = '';
+                return;
+            }
 
             let canvas=document.getElementById('canvas');
             let ctx=canvas.getContext('2d');
@@ -48,6 +61,7 @@
             canvas.toBlob(async function(blob){
                 let fd=new FormData();
                 fd.append('image',blob);
+                fd.append('email', email);
 
                 let res=await fetch('/login',{method:'POST',body:fd});
                 let data=await res.json();

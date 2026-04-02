@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+import hashlib
 
 import cv2
 import numpy as np
@@ -15,6 +16,7 @@ FACES_DIR = os.path.join(BASE_DIR, "faces")
 MODEL_PATH = os.path.join(BASE_DIR, "trainer.yml")
 LABELS_PATH = os.path.join(BASE_DIR, "labels.json")
 EMBEDDINGS_PATH = os.path.join(BASE_DIR, "embeddings.npz")
+USERS_PATH = os.path.join(BASE_DIR, "users.json")
 FACE_SIZE = (200, 200)
 ACCEPT_THRESHOLD = 70.0
 EMBEDDING_FACE_SIZE = (64, 64)
@@ -29,6 +31,30 @@ os.makedirs(FACES_DIR, exist_ok=True)
 def safe_name(name: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
     return cleaned[:60] if cleaned else "user"
+
+
+def normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def is_valid_email(email: str) -> bool:
+    return re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email) is not None
+
+
+def email_hash(email: str) -> str:
+    return hashlib.sha1(email.encode("utf-8")).hexdigest()[:10]
+
+
+def load_users():
+    if not os.path.exists(USERS_PATH):
+        return {}
+    with open(USERS_PATH, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def save_users(users):
+    with open(USERS_PATH, "w", encoding="utf-8") as file:
+        json.dump(users, file, indent=2)
 
 
 def decode_upload(file_storage):
@@ -146,15 +172,26 @@ def login_page():
 @app.route('/register', methods=['POST'])
 def register():
     name = request.form.get('name', '').strip()
+    email = normalize_email(request.form.get('email', ''))
     files = request.files.getlist('images')
 
     if not name:
         return jsonify(success=False, name=None, message="Name is required")
 
+    if not email:
+        return jsonify(success=False, name=None, message="Email is required")
+
+    if not is_valid_email(email):
+        return jsonify(success=False, name=None, message="Please enter a valid email")
+
     if not files or len(files) == 0:
         return jsonify(success=False, name=None, message="No frames captured")
 
-    person = safe_name(name)
+    users = load_users()
+    if email in users:
+        return jsonify(success=False, name=None, message="This email is already registered")
+
+    person = f"{safe_name(name)}_{email_hash(email)}"
     person_dir = os.path.join(FACES_DIR, person)
     os.makedirs(person_dir, exist_ok=True)
 
@@ -177,12 +214,34 @@ def register():
     if not ok:
         return jsonify(success=False, name=person, message=message)
 
-    return jsonify(success=True, name=person, message=f"{person} registered with {saved_count} samples! ✅")
+    users[email] = {
+        "name": name,
+        "email": email,
+        "person_id": person,
+        "created_at": int(time.time())
+    }
+    save_users(users)
+
+    return jsonify(success=True, name=name, message=f"{name} registered with {saved_count} samples! ✅")
 
 # ---------------- LOGIN ----------------
 @app.route('/login', methods=['POST'])
 def login():
+    email = normalize_email(request.form.get('email', ''))
     file = request.files.get('image')
+
+    if not email:
+        return jsonify(success=False, message="Email is required")
+
+    if not is_valid_email(email):
+        return jsonify(success=False, message="Please enter a valid email")
+
+    users = load_users()
+    if email not in users:
+        return jsonify(success=False, message="Email not registered")
+
+    expected_person_id = users[email]["person_id"]
+    display_name = users[email]["name"]
 
     if not file or file.filename == '':
         return jsonify(success=False, message="No file selected")
@@ -202,13 +261,13 @@ def login():
             pred_id, confidence = recognizer.predict(face)
             pred_name = labels.get(str(pred_id), "Unknown")
 
-            if confidence <= ACCEPT_THRESHOLD and pred_name != "Unknown":
-                session["logged_in_user"] = pred_name
+            if confidence <= ACCEPT_THRESHOLD and pred_name == expected_person_id:
+                session["logged_in_user"] = display_name
                 return jsonify(
                     success=True,
-                    name=pred_name,
+                    name=display_name,
                     confidence=confidence,
-                    message=f"Welcome {pred_name}! ✅"
+                    message=f"Welcome {display_name}! ✅"
                 )
 
             return jsonify(success=False, name=None, confidence=confidence, message="User not recognized ❌")
@@ -229,13 +288,13 @@ def login():
     best_distance = float(distances[best_idx])
     best_name = str(names[best_idx])
 
-    if best_distance <= EMBEDDING_DISTANCE_THRESHOLD:
-        session["logged_in_user"] = best_name
+    if best_distance <= EMBEDDING_DISTANCE_THRESHOLD and best_name == expected_person_id:
+        session["logged_in_user"] = display_name
         return jsonify(
             success=True,
-            name=best_name,
+            name=display_name,
             confidence=best_distance,
-            message=f"Welcome {best_name}! ✅"
+            message=f"Welcome {display_name}! ✅"
         )
 
     return jsonify(success=False, name=None, confidence=best_distance, message="User not recognized ❌")
