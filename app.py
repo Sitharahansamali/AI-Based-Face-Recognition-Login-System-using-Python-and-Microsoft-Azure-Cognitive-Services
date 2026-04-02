@@ -228,6 +228,7 @@ def register():
 @app.route('/login', methods=['POST'])
 def login():
     email = normalize_email(request.form.get('email', ''))
+    blink_verified = request.form.get('blink_verified', '').lower() == 'true'
     file = request.files.get('image')
 
     if not email:
@@ -235,6 +236,9 @@ def login():
 
     if not is_valid_email(email):
         return jsonify(success=False, message="Please enter a valid email")
+
+    if not blink_verified:
+        return jsonify(success=False, message="Blink verification required")
 
     users = load_users()
     if email not in users:

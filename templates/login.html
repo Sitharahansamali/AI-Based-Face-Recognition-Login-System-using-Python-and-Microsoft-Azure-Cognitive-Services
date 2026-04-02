@@ -18,9 +18,16 @@
                 <input type="email" id="email" name="email" placeholder="Enter your registered email" required>
             </div>
             
-            <video id="video" autoplay playsinline></video>
+            <div class="video-stage">
+                <video id="video" autoplay playsinline></video>
+                <canvas id="overlay" class="overlay-canvas"></canvas>
+            </div>
+            <div class="liveness-pill" id="livenessState">Blink once to verify that you are present</div>
             
-            <p id="status">Scanning your face...</p>
+            <div class="hint-panel" id="hintPanel">
+                MediaPipe face landmarks are active. Look at the camera, blink once, then the system will match your face.
+            </div>
+            <p id="status" class="muted-text">Scanning your face...</p>
             <p id="result"></p>
             
             <a href="/" class="btn btn-back">← Cancel</a>
@@ -29,24 +36,156 @@
 
     <canvas id="canvas" style="display:none;"></canvas>
 
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+
     <script>
         const video = document.getElementById('video');
         const emailInput = document.getElementById('email');
-        navigator.mediaDevices.getUserMedia({ video: true })
-        .then(stream => video.srcObject = stream)
-        .catch(err => {
-            document.getElementById('status').textContent = 'Camera access denied';
-        });
+        const overlay = document.getElementById('overlay');
+        const overlayCtx = overlay.getContext('2d');
+        const livenessState = document.getElementById('livenessState');
+        const hintPanel = document.getElementById('hintPanel');
+        const blinkRequiredMessage = 'Blink once to verify that you are present';
 
+        let faceMesh = null;
+        let camera = null;
+        let blinkVerified = false;
+        let eyeClosed = false;
         let scanning = true;
 
+        function setStatus(text, tone) {
+            const statusEl = document.getElementById('status');
+            statusEl.innerText = text;
+            statusEl.className = tone || 'muted-text';
+        }
+
+        function resizeOverlay() {
+            const rect = video.getBoundingClientRect();
+            overlay.width = rect.width;
+            overlay.height = rect.height;
+            overlay.style.width = rect.width + 'px';
+            overlay.style.height = rect.height + 'px';
+        }
+
+        function distance(a, b) {
+            const dx = a.x - b.x;
+            const dy = a.y - b.y;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        function eyeAspectRatio(landmarks, indices) {
+            const p1 = landmarks[indices[0]];
+            const p2 = landmarks[indices[1]];
+            const p3 = landmarks[indices[2]];
+            const p4 = landmarks[indices[3]];
+            const p5 = landmarks[indices[4]];
+            const p6 = landmarks[indices[5]];
+            const vertical1 = distance(p2, p6);
+            const vertical2 = distance(p3, p5);
+            const horizontal = distance(p1, p4);
+            return (vertical1 + vertical2) / (2.0 * horizontal);
+        }
+
+        function drawFaceMesh(results) {
+            overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+            if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+                return;
+            }
+
+            for (const landmarks of results.multiFaceLandmarks) {
+                drawConnectors(overlayCtx, landmarks, FACEMESH_TESSELATION, { color: 'rgba(34, 211, 238, 0.25)', lineWidth: 1 });
+                drawConnectors(overlayCtx, landmarks, FACEMESH_LEFT_EYE, { color: '#38bdf8', lineWidth: 2 });
+                drawConnectors(overlayCtx, landmarks, FACEMESH_RIGHT_EYE, { color: '#38bdf8', lineWidth: 2 });
+                drawConnectors(overlayCtx, landmarks, FACEMESH_LIPS, { color: 'rgba(16, 185, 129, 0.7)', lineWidth: 2 });
+            }
+        }
+
+        function handleBlink(landmarks) {
+            const leftEar = eyeAspectRatio(landmarks, [33, 160, 158, 133, 153, 144]);
+            const rightEar = eyeAspectRatio(landmarks, [362, 385, 387, 263, 373, 380]);
+            const ear = (leftEar + rightEar) / 2;
+            const blinkThreshold = 0.19;
+
+            if (ear < blinkThreshold) {
+                eyeClosed = true;
+                livenessState.textContent = 'Blink detected in progress';
+                livenessState.className = 'liveness-pill warning-text';
+                return;
+            }
+
+            if (eyeClosed && ear >= blinkThreshold && !blinkVerified) {
+                blinkVerified = true;
+                livenessState.textContent = 'Liveness verified';
+                livenessState.className = 'liveness-pill success-text';
+                setStatus('Blink verified. Login is active.', 'success-text');
+                hintPanel.textContent = 'Face landmarks are active. The system is now checking your face against the registered email.';
+            }
+
+            if (!blinkVerified) {
+                livenessState.textContent = blinkRequiredMessage;
+                livenessState.className = 'liveness-pill';
+            }
+        }
+
+        async function onResults(results) {
+            drawFaceMesh(results);
+
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                handleBlink(results.multiFaceLandmarks[0]);
+            }
+        }
+
+        function startFaceMesh() {
+            faceMesh = new FaceMesh({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+            });
+
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6,
+                selfieMode: true
+            });
+
+            faceMesh.onResults(onResults);
+
+            camera = new Camera(video, {
+                onFrame: async () => {
+                    await faceMesh.send({ image: video });
+                },
+                width: 640,
+                height: 480
+            });
+
+            camera.start().catch(() => {
+                setStatus('Camera access denied', 'warning-text');
+            });
+        }
+
+        video.addEventListener('loadedmetadata', () => {
+            resizeOverlay();
+        });
+
+        window.addEventListener('resize', resizeOverlay);
+
+        let loginInProgress = false;
+
         async function scan(){
-            if(!scanning) return;
+            if(!scanning || loginInProgress) return;
 
             const email = emailInput.value.trim();
             if (!email) {
-                document.getElementById('status').innerText = 'Enter your email to start login';
+                setStatus('Enter your email to start login', 'warning-text');
                 document.getElementById('result').innerText = '';
+                return;
+            }
+
+            if (!blinkVerified) {
+                setStatus('Blink once to continue', 'warning-text');
                 return;
             }
 
@@ -59,25 +198,29 @@
             ctx.drawImage(video,0,0);
 
             canvas.toBlob(async function(blob){
+                loginInProgress = true;
                 let fd=new FormData();
                 fd.append('image',blob);
                 fd.append('email', email);
+                fd.append('blink_verified', 'true');
 
                 let res=await fetch('/login',{method:'POST',body:fd});
                 let data=await res.json();
+                loginInProgress = false;
 
                 if(data.success){
                     scanning=false;
-                    document.getElementById('status').innerText="Recognized";
+                    setStatus('Recognized', 'success-text');
                     document.getElementById('result').innerText=data.message;
                     setTimeout(() => window.location.href = '/', 1500);
                 } else {
-                    document.getElementById('status').innerText="Scanning your face...";
+                    setStatus('Scanning your face...', 'muted-text');
                     document.getElementById('result').innerText=data.message || '';
                 }
             },'image/jpeg');
         }
 
+        startFaceMesh();
         setInterval(scan,3000);
     </script>
 
