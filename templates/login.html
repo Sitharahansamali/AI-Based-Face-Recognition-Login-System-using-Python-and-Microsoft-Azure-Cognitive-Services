@@ -48,6 +48,9 @@
         const livenessState = document.getElementById('livenessState');
         const hintPanel = document.getElementById('hintPanel');
         const blinkRequiredMessage = 'Blink once to verify that you are present';
+        const loginSamples = [];
+        const LOGIN_SAMPLE_TARGET = 5;
+        const LOGIN_SAMPLE_INTERVAL = 350;
 
         let faceMesh = null;
         let camera = null;
@@ -173,6 +176,48 @@
         window.addEventListener('resize', resizeOverlay);
 
         let loginInProgress = false;
+        let collectingLoginSamples = false;
+
+        function captureLoginFrame() {
+            return new Promise((resolve) => {
+                let canvas=document.getElementById('canvas');
+                let ctx=canvas.getContext('2d');
+
+                canvas.width=video.videoWidth;
+                canvas.height=video.videoHeight;
+
+                ctx.drawImage(video,0,0);
+
+                canvas.toBlob((blob) => resolve(blob), 'image/jpeg');
+            });
+        }
+
+        async function collectLoginSamples(email) {
+            if (collectingLoginSamples) {
+                return;
+            }
+
+            collectingLoginSamples = true;
+            loginSamples.length = 0;
+            setStatus('Collecting login samples...', 'muted-text');
+            document.getElementById('result').innerText = '';
+
+            for (let i = 0; i < LOGIN_SAMPLE_TARGET; i++) {
+                if (!scanning || loginInProgress) {
+                    break;
+                }
+
+                const blob = await captureLoginFrame();
+                if (blob) {
+                    loginSamples.push(blob);
+                }
+
+                setStatus('Collecting login samples ' + (i + 1) + '/' + LOGIN_SAMPLE_TARGET, 'muted-text');
+                await new Promise((resolve) => setTimeout(resolve, LOGIN_SAMPLE_INTERVAL));
+            }
+
+            collectingLoginSamples = false;
+        }
 
         async function scan(){
             if(!scanning || loginInProgress) return;
@@ -189,15 +234,16 @@
                 return;
             }
 
-            let canvas=document.getElementById('canvas');
-            let ctx=canvas.getContext('2d');
+            if (loginSamples.length < LOGIN_SAMPLE_TARGET && !collectingLoginSamples) {
+                await collectLoginSamples(email);
+            }
 
-            canvas.width=video.videoWidth;
-            canvas.height=video.videoHeight;
+            if (loginSamples.length === 0) {
+                setStatus('Face samples not ready', 'warning-text');
+                return;
+            }
 
-            ctx.drawImage(video,0,0);
-
-            canvas.toBlob(async function(blob){
+            for (const blob of loginSamples) {
                 loginInProgress = true;
                 let fd=new FormData();
                 fd.append('image',blob);
@@ -213,11 +259,12 @@
                     setStatus('Recognized', 'success-text');
                     document.getElementById('result').innerText=data.message;
                     setTimeout(() => window.location.href = '/', 1500);
-                } else {
-                    setStatus('Scanning your face...', 'muted-text');
-                    document.getElementById('result').innerText=data.message || '';
+                    return;
                 }
-            },'image/jpeg');
+            }
+
+            setStatus('Scanning your face...', 'muted-text');
+            document.getElementById('result').innerText = 'Unable to identify the face clearly. Try better lighting and stay centered.';
         }
 
         startFaceMesh();

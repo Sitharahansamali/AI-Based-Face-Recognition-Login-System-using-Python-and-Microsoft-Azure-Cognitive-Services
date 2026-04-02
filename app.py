@@ -21,6 +21,8 @@ FACE_SIZE = (200, 200)
 ACCEPT_THRESHOLD = 70.0
 EMBEDDING_FACE_SIZE = (64, 64)
 EMBEDDING_DISTANCE_THRESHOLD = 12.0
+LOGIN_FRAME_COUNT = 5
+LOGIN_DISTANCE_MARGIN = 0.04
 
 CASCADE_PATH = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
 face_cascade = cv2.CascadeClassifier(CASCADE_PATH)
@@ -91,7 +93,57 @@ def get_recognizer():
 def face_vector(face_gray):
     normalized = cv2.equalizeHist(face_gray)
     small = cv2.resize(normalized, EMBEDDING_FACE_SIZE)
-    return small.astype(np.float32).reshape(-1) / 255.0
+    vector = small.astype(np.float32).reshape(-1) / 255.0
+    norm = np.linalg.norm(vector)
+    if norm == 0:
+        return vector
+    return vector / norm
+
+
+def process_frame_for_login(file_storage):
+    img_bgr = decode_upload(file_storage)
+    return extract_largest_face(img_bgr)
+
+
+def predict_with_lbph(face, recognizer, labels):
+    if recognizer is None or not os.path.exists(MODEL_PATH):
+        return None
+
+    recognizer.read(MODEL_PATH)
+    pred_id, confidence = recognizer.predict(face)
+    pred_name = labels.get(str(pred_id), "Unknown")
+    return {
+        "name": pred_name,
+        "confidence": float(confidence),
+    }
+
+
+def predict_with_embeddings(face):
+    if not os.path.exists(EMBEDDINGS_PATH):
+        return None
+
+    data = np.load(EMBEDDINGS_PATH)
+    vectors = data["vectors"]
+    names = data["names"]
+
+    if len(vectors) == 0:
+        return None
+
+    unknown_vector = face_vector(face)
+    distances = np.linalg.norm(vectors - unknown_vector, axis=1)
+    best_idx = int(np.argmin(distances))
+    best_distance = float(distances[best_idx])
+    best_name = str(names[best_idx])
+
+    # Compare against the second-best candidate to reduce false positives.
+    sorted_distances = np.sort(distances)
+    second_best = float(sorted_distances[1]) if len(sorted_distances) > 1 else best_distance + 1.0
+
+    return {
+        "name": best_name,
+        "confidence": best_distance,
+        "margin": second_best - best_distance,
+    }
 
 
 def load_labels():
@@ -251,57 +303,32 @@ def login():
         return jsonify(success=False, message="No file selected")
 
     recognizer = get_recognizer()
-
-    img_bgr = decode_upload(file)
-    face = extract_largest_face(img_bgr)
+    face = process_frame_for_login(file)
 
     if face is None:
         return jsonify(success=False, message="No face detected")
 
-    if recognizer is not None and os.path.exists(MODEL_PATH):
-        labels = load_labels()
-        if labels:
-            recognizer.read(MODEL_PATH)
-            pred_id, confidence = recognizer.predict(face)
-            pred_name = labels.get(str(pred_id), "Unknown")
+    labels = load_labels()
 
-            if confidence <= ACCEPT_THRESHOLD and pred_name == expected_person_id:
-                session["logged_in_user"] = display_name
-                return jsonify(
-                    success=True,
-                    name=display_name,
-                    confidence=confidence,
-                    message=f"Welcome {display_name}"
-                )
+    lbph_result = predict_with_lbph(face, recognizer, labels) if labels else None
+    embedding_result = predict_with_embeddings(face)
 
-            return jsonify(success=False, name=None, confidence=confidence, message="User not recognized")
-
-    if not os.path.exists(EMBEDDINGS_PATH):
-        return jsonify(success=False, message="No trained model found. Please register first.")
-
-    data = np.load(EMBEDDINGS_PATH)
-    vectors = data["vectors"]
-    names = data["names"]
-
-    if len(vectors) == 0:
-        return jsonify(success=False, message="No trained model found. Please register first.")
-
-    unknown_vector = face_vector(face)
-    distances = np.linalg.norm(vectors - unknown_vector, axis=1)
-    best_idx = int(np.argmin(distances))
-    best_distance = float(distances[best_idx])
-    best_name = str(names[best_idx])
-
-    if best_distance <= EMBEDDING_DISTANCE_THRESHOLD and best_name == expected_person_id:
+    # Prefer LBPH if available, but fall back to embeddings. Both must agree with the email identity.
+    if lbph_result is not None and lbph_result["name"] == expected_person_id and lbph_result["confidence"] <= ACCEPT_THRESHOLD:
         session["logged_in_user"] = display_name
-        return jsonify(
-            success=True,
-            name=display_name,
-            confidence=best_distance,
-            message=f"Welcome {display_name}"
-        )
+        return jsonify(success=True, name=display_name, confidence=lbph_result["confidence"], message=f"Welcome {display_name}")
 
-    return jsonify(success=False, name=None, confidence=best_distance, message="User not recognized")
+    if embedding_result is not None and embedding_result["name"] == expected_person_id and embedding_result["confidence"] <= EMBEDDING_DISTANCE_THRESHOLD and embedding_result["margin"] >= LOGIN_DISTANCE_MARGIN:
+        session["logged_in_user"] = display_name
+        return jsonify(success=True, name=display_name, confidence=embedding_result["confidence"], message=f"Welcome {display_name}")
+
+    if lbph_result is not None:
+        return jsonify(success=False, name=None, confidence=lbph_result["confidence"], message="User not recognized")
+
+    if embedding_result is not None:
+        return jsonify(success=False, name=None, confidence=embedding_result["confidence"], message="User not recognized")
+
+    return jsonify(success=False, message="No trained model found. Please register first.")
 
 
 @app.route('/logout')
