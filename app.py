@@ -1,95 +1,138 @@
+import json
 import os
-import requests
-import sqlite3
-from flask import Flask, render_template, request
-from dotenv import load_dotenv
+import re
+import time
 
-load_dotenv()
+import cv2
+import numpy as np
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key-change-me")
 
-AZURE_ENDPOINT = os.getenv("AZURE_ENDPOINT")
-AZURE_KEY = os.getenv("AZURE_KEY")
-GROUP_ID = os.getenv("PERSON_GROUP_ID")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FACES_DIR = os.path.join(BASE_DIR, "faces")
+MODEL_PATH = os.path.join(BASE_DIR, "trainer.yml")
+LABELS_PATH = os.path.join(BASE_DIR, "labels.json")
+EMBEDDINGS_PATH = os.path.join(BASE_DIR, "embeddings.npz")
+FACE_SIZE = (200, 200)
+ACCEPT_THRESHOLD = 70.0
+EMBEDDING_FACE_SIZE = (64, 64)
+EMBEDDING_DISTANCE_THRESHOLD = 12.0
 
-headers_json = {
-    'Ocp-Apim-Subscription-Key': AZURE_KEY,
-    'Content-Type': 'application/json'
-}
+CASCADE_PATH = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+face_cascade = cv2.CascadeClassifier(CASCADE_PATH)
 
-headers_binary = {
-    'Ocp-Apim-Subscription-Key': AZURE_KEY,
-    'Content-Type': 'application/octet-stream'
-}
+os.makedirs(FACES_DIR, exist_ok=True)
 
-# ---------------- DATABASE ----------------
-def init_db():
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            person_id TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
 
-def save_user(name, person_id):
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO users (name, person_id) VALUES (?, ?)", (name, person_id))
-    conn.commit()
-    conn.close()
+def safe_name(name: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
+    return cleaned[:60] if cleaned else "user"
 
-def get_user(person_id):
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM users WHERE person_id=?", (person_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else None
 
-# ---------------- AZURE ----------------
-def create_group():
-    url = f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{GROUP_ID}"
-    requests.put(url, headers=headers_json, json={"name": "Users"})
+def decode_upload(file_storage):
+    data = np.frombuffer(file_storage.read(), np.uint8)
+    return cv2.imdecode(data, cv2.IMREAD_COLOR)
 
-def create_person(name):
-    url = f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{GROUP_ID}/persons"
-    res = requests.post(url, headers=headers_json, json={"name": name})
-    return res.json()["personId"]
 
-def add_face(person_id, image):
-    url = f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{GROUP_ID}/persons/{person_id}/persistedFaces"
-    requests.post(url, headers=headers_binary, data=image)
+def extract_largest_face(img_bgr):
+    if img_bgr is None:
+        return None
 
-def train():
-    url = f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{GROUP_ID}/train"
-    requests.post(url, headers=headers_json)
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.2,
+        minNeighbors=5,
+        minSize=(80, 80),
+    )
 
-def detect_face(image):
-    url = f"{AZURE_ENDPOINT}/face/v1.0/detect"
-    res = requests.post(url, headers=headers_binary, data=image)
-    faces = res.json()
-    return faces[0]["faceId"] if faces else None
+    if len(faces) == 0:
+        return None
 
-def identify(face_id):
-    url = f"{AZURE_ENDPOINT}/face/v1.0/identify"
-    body = {
-        "personGroupId": GROUP_ID,
-        "faceIds": [face_id],
-        "maxNumOfCandidatesReturned": 1,
-        "confidenceThreshold": 0.6
-    }
-    res = requests.post(url, headers=headers_json, json=body)
-    return res.json()
+    x, y, w, h = max(faces, key=lambda face: face[2] * face[3])
+    face = gray[y:y + h, x:x + w]
+    return cv2.resize(face, FACE_SIZE)
 
-# ---------------- ROUTES ----------------
+
+def get_recognizer():
+    if not hasattr(cv2, "face") or not hasattr(cv2.face, "LBPHFaceRecognizer_create"):
+        return None
+    return cv2.face.LBPHFaceRecognizer_create()
+
+
+def face_vector(face_gray):
+    normalized = cv2.equalizeHist(face_gray)
+    small = cv2.resize(normalized, EMBEDDING_FACE_SIZE)
+    return small.astype(np.float32).reshape(-1) / 255.0
+
+
+def load_labels():
+    if not os.path.exists(LABELS_PATH):
+        return {}
+    with open(LABELS_PATH, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def save_labels(labels):
+    with open(LABELS_PATH, "w", encoding="utf-8") as file:
+        json.dump(labels, file, indent=2)
+
+
+def retrain_model():
+    recognizer = get_recognizer()
+
+    labels = {}
+    images = []
+    target_ids = []
+    vectors = []
+    names = []
+    next_id = 0
+
+    for person in sorted(os.listdir(FACES_DIR)):
+        person_dir = os.path.join(FACES_DIR, person)
+        if not os.path.isdir(person_dir):
+            continue
+
+        labels[str(next_id)] = person
+
+        for filename in os.listdir(person_dir):
+            if not filename.lower().endswith((".png", ".jpg", ".jpeg")):
+                continue
+
+            image_path = os.path.join(person_dir, filename)
+            image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            if image is None:
+                continue
+
+            if image.shape != FACE_SIZE:
+                image = cv2.resize(image, FACE_SIZE)
+
+            images.append(image)
+            target_ids.append(next_id)
+            vectors.append(face_vector(image))
+            names.append(person)
+
+        next_id += 1
+
+    if len(images) == 0:
+        return False, "No training images found."
+
+    np.savez(EMBEDDINGS_PATH, vectors=np.array(vectors), names=np.array(names))
+
+    if recognizer is None:
+        return True, "Fallback model trained."
+
+    recognizer.train(images, np.array(target_ids))
+    recognizer.save(MODEL_PATH)
+    save_labels(labels)
+    return True, "Model trained."
+
+# ---------------- HOME ----------------
 @app.route('/')
 def home():
-    return render_template('index.html')
+    return render_template('index.html', logged_in_user=session.get('logged_in_user'))
 
 @app.route('/register_page')
 def register_page():
@@ -99,40 +142,103 @@ def register_page():
 def login_page():
     return render_template('login.html')
 
-# REGISTER
+# ---------------- REGISTER ----------------
 @app.route('/register', methods=['POST'])
 def register():
-    name = request.form['name']
-    image = request.files['image'].read()
+    name = request.form.get('name', '').strip()
+    file = request.files.get('image')
 
-    person_id = create_person(name)
-    add_face(person_id, image)
-    train()
-    save_user(name, person_id)
+    if not name:
+        return jsonify(success=False, name=None, message="Name is required")
+    if not file or file.filename == '':
+        return jsonify(success=False, name=None, message="No file selected")
 
-    return f"{name} registered successfully!"
+    img_bgr = decode_upload(file)
+    face = extract_largest_face(img_bgr)
 
-# LOGIN
+    if face is None:
+        return jsonify(success=False, name=None, message="No face detected ❌")
+
+    person = safe_name(name)
+    person_dir = os.path.join(FACES_DIR, person)
+    os.makedirs(person_dir, exist_ok=True)
+
+    sample_path = os.path.join(person_dir, f"{int(time.time() * 1000)}.png")
+    cv2.imwrite(sample_path, face)
+
+    ok, message = retrain_model()
+    if not ok:
+        return jsonify(success=False, name=person, message=message)
+
+    return jsonify(success=True, name=person, message=f"{person} registered successfully ✅")
+
+# ---------------- LOGIN ----------------
 @app.route('/login', methods=['POST'])
 def login():
-    image = request.files['image'].read()
+    file = request.files.get('image')
 
-    face_id = detect_face(image)
-    if not face_id:
-        return "No face detected"
+    if not file or file.filename == '':
+        return jsonify(success=False, message="No file selected")
 
-    result = identify(face_id)
+    recognizer = get_recognizer()
 
-    if result[0]['candidates']:
-        person_id = result[0]['candidates'][0]['personId']
-        confidence = result[0]['candidates'][0]['confidence']
-        name = get_user(person_id)
+    img_bgr = decode_upload(file)
+    face = extract_largest_face(img_bgr)
 
-        return f"Welcome {name}! (Confidence: {round(confidence,2)})"
-    else:
-        return "Not recognized"
+    if face is None:
+        return jsonify(success=False, message="No face detected")
 
-# ---------------- MAIN ----------------
+    if recognizer is not None and os.path.exists(MODEL_PATH):
+        labels = load_labels()
+        if labels:
+            recognizer.read(MODEL_PATH)
+            pred_id, confidence = recognizer.predict(face)
+            pred_name = labels.get(str(pred_id), "Unknown")
+
+            if confidence <= ACCEPT_THRESHOLD and pred_name != "Unknown":
+                session["logged_in_user"] = pred_name
+                return jsonify(
+                    success=True,
+                    name=pred_name,
+                    confidence=confidence,
+                    message=f"Welcome {pred_name}! ✅"
+                )
+
+            return jsonify(success=False, name=None, confidence=confidence, message="User not recognized ❌")
+
+    if not os.path.exists(EMBEDDINGS_PATH):
+        return jsonify(success=False, message="No trained model found. Please register first.")
+
+    data = np.load(EMBEDDINGS_PATH)
+    vectors = data["vectors"]
+    names = data["names"]
+
+    if len(vectors) == 0:
+        return jsonify(success=False, message="No trained model found. Please register first.")
+
+    unknown_vector = face_vector(face)
+    distances = np.linalg.norm(vectors - unknown_vector, axis=1)
+    best_idx = int(np.argmin(distances))
+    best_distance = float(distances[best_idx])
+    best_name = str(names[best_idx])
+
+    if best_distance <= EMBEDDING_DISTANCE_THRESHOLD:
+        session["logged_in_user"] = best_name
+        return jsonify(
+            success=True,
+            name=best_name,
+            confidence=best_distance,
+            message=f"Welcome {best_name}! ✅"
+        )
+
+    return jsonify(success=False, name=None, confidence=best_distance, message="User not recognized ❌")
+
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in_user', None)
+    return redirect(url_for('home'))
+
+# ---------------- RUN ----------------
 if __name__ == '__main__':
-    init_db()
     app.run(debug=True)

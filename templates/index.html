@@ -12,6 +12,11 @@
             <div class="icon">🔐</div>
             <h1>Face Recognition</h1>
             <p class="subtitle">Secure login using facial recognition</p>
+
+            {% if logged_in_user %}
+            <p id="result" style="margin-bottom: 15px; font-weight: 700; color: #28a745;">Logged in as {{ logged_in_user }}</p>
+            <a href="/logout" class="btn btn-secondary" style="margin-bottom: 20px;">Logout</a>
+            {% endif %}
             
             <div class="button-group">
                 <a href="/register_page" class="btn btn-primary">📝 Register New Face</a>

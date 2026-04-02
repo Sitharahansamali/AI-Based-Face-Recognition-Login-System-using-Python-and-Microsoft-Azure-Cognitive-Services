@@ -158,14 +158,14 @@
 
             try {
                 const res = await fetch('/register', {method: 'POST', body: formData});
-                const text = await res.text();
+                const data = await res.json();
 
-                if (text.includes('successfully')) {
-                    messageEl.textContent = '✅ ' + text;
+                if (data.success) {
+                    messageEl.textContent = '✅ ' + data.message;
                     messageEl.className = 'success';
                     setTimeout(() => window.location.href = '/', 2000);
                 } else {
-                    messageEl.textContent = '❌ ' + text;
+                    messageEl.textContent = '❌ ' + (data.message || 'Registration failed');
                     messageEl.className = 'error';
                 }
             } catch (err) {
