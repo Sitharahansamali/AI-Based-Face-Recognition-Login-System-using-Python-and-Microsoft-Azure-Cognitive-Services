@@ -1,55 +1,71 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<link rel="stylesheet" href="/static/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Face Recognition</title>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    <div class="container">
+        <div class="card">
+            <div class="icon">📹</div>
+            <h2>Face Login</h2>
+            <p class="subtitle">Align your face with the camera</p>
+            
+            <video id="video" autoplay playsinline></video>
+            
+            <p id="status">🔍 Scanning your face...</p>
+            <p id="result"></p>
+            
+            <a href="/" class="btn btn-back">← Cancel</a>
+        </div>
+    </div>
 
-<div class="card">
-<h2>Auto Face Login</h2>
-<video id="video" autoplay></video>
-<p id="status">Scanning...</p>
-<p id="result"></p>
-</div>
+    <canvas id="canvas" style="display:none;"></canvas>
 
-<canvas id="canvas" style="display:none;"></canvas>
+    <script>
+        const video = document.getElementById('video');
+        navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => video.srcObject = stream)
+        .catch(err => {
+            document.getElementById('status').textContent = '❌ Camera access denied';
+        });
 
-<script>
-const video = document.getElementById('video');
-navigator.mediaDevices.getUserMedia({ video: true })
-.then(stream => video.srcObject = stream);
+        let scanning = true;
 
-let scanning = true;
+        async function scan(){
+            if(!scanning) return;
 
-async function scan(){
-if(!scanning) return;
+            let canvas=document.getElementById('canvas');
+            let ctx=canvas.getContext('2d');
 
-let canvas=document.getElementById('canvas');
-let ctx=canvas.getContext('2d');
+            canvas.width=video.videoWidth;
+            canvas.height=video.videoHeight;
 
-canvas.width=video.videoWidth;
-canvas.height=video.videoHeight;
+            ctx.drawImage(video,0,0);
 
-ctx.drawImage(video,0,0);
+            canvas.toBlob(async function(blob){
+                let fd=new FormData();
+                fd.append('image',blob);
 
-canvas.toBlob(async function(blob){
-let fd=new FormData();
-fd.append('image',blob);
+                let res=await fetch('/login',{method:'POST',body:fd});
+                let data=await res.json();
 
-let res=await fetch('/login',{method:'POST',body:fd});
-let text=await res.text();
+                if(data.success){
+                    scanning=false;
+                    document.getElementById('status').innerText="✅ Recognized";
+                    document.getElementById('result').innerText=data.message;
+                    setTimeout(() => window.location.href = '/', 1500);
+                } else {
+                    document.getElementById('status').innerText="🔍 Scanning your face...";
+                    document.getElementById('result').innerText=data.message || '';
+                }
+            },'image/jpeg');
+        }
 
-if(text.includes("Welcome")){
-scanning=false;
-document.getElementById('status').innerText="✅ Recognized";
-document.getElementById('result').innerText=text;
-}
-},'image/jpeg');
-
-}
-
-setInterval(scan,3000);
-</script>
+        setInterval(scan,3000);
+    </script>
 
 </body>
 </html>

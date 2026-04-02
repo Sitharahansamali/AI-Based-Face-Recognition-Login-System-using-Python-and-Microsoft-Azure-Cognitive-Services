@@ -1,6 +1,185 @@
-<h2>Register</h2>
-<form action="/register" method="post" enctype="multipart/form-data">
-    Name: <input type="text" name="name" required><br><br>
-    Image: <input type="file" name="image" required><br><br>
-    <button type="submit">Register</button>
-</form>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Face Recognition</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="icon">📸</div>
+            <h2>Register Your Face</h2>
+            <p class="subtitle">Create your facial recognition profile</p>
+            
+            <form id="registerForm" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="name">👤 Full Name</label>
+                    <input type="text" id="name" name="name" placeholder="Enter your full name" required>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <button type="button" id="toggleWebcam" class="btn btn-secondary" style="width: 100%;">📷 Use Webcam</button>
+                </div>
+                
+                <!-- Webcam Section -->
+                <div id="webcamSection" style="display: none; margin-bottom: 20px;">
+                    <video id="webcamVideo" autoplay playsinline style="width: 100%; max-width: 350px; border-radius: 15px; margin-bottom: 10px;"></video>
+                    <button type="button" id="captureBtn" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;">📸 Capture Photo</button>
+                    <button type="button" id="retakeBtn" class="btn btn-secondary" style="width: 100%;">🔄 Retake</button>
+                    <canvas id="canvas" style="display: none;"></canvas>
+                    <img id="capturedImage" style="display: none; width: 100%; max-width: 350px; border-radius: 15px; margin-top: 10px;">
+                </div>
+                
+                <!-- File Upload Section -->
+                <div id="fileSection">
+                    <div class="form-group">
+                        <label for="image">🖼️ Or Upload Photo</label>
+                        <input type="file" id="image" name="image" accept="image/*">
+                        <small style="color: #888; display: block; margin-top: 5px;">📌 Clear, well-lit photos work best</small>
+                    </div>
+                </div>
+                
+                <button type="submit" id="submitBtn" class="btn btn-primary" style="width: 100%;">✅ Register</button>
+            </form>
+            
+            <p id="message"></p>
+            <a href="/" class="btn btn-back">← Back to Home</a>
+        </div>
+    </div>
+    
+    <script>
+        let webcamStream = null;
+        let capturedImageBlob = null;
+        const video = document.getElementById('webcamVideo');
+        const canvas = document.getElementById('canvas');
+        const capturedImage = document.getElementById('capturedImage');
+        const toggleBtn = document.getElementById('toggleWebcam');
+        const captureBtn = document.getElementById('captureBtn');
+        const retakeBtn = document.getElementById('retakeBtn');
+        const webcamSection = document.getElementById('webcamSection');
+        const fileSection = document.getElementById('fileSection');
+        const fileInput = document.getElementById('image');
+        const nameInput = document.getElementById('name');
+        const form = document.getElementById('registerForm');
+        const messageEl = document.getElementById('message');
+
+        // Toggle between webcam and file upload
+        toggleBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (webcamSection.style.display === 'none') {
+                // Enable webcam
+                try {
+                    webcamStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    video.srcObject = webcamStream;
+                    webcamSection.style.display = 'block';
+                    fileSection.style.display = 'none';
+                    toggleBtn.textContent = '🖼️ Use Photo Instead';
+                    fileInput.removeAttribute('required');
+                } catch (err) {
+                    messageEl.textContent = '❌ Camera access denied: ' + err.message;
+                    messageEl.className = 'error';
+                }
+            } else {
+                // Switch back to file upload
+                if (webcamStream) {
+                    webcamStream.getTracks().forEach(track => track.stop());
+                }
+                webcamSection.style.display = 'none';
+                fileSection.style.display = 'block';
+                toggleBtn.textContent = '📷 Use Webcam';
+                fileInput.setAttribute('required', 'required');
+                capturedImageBlob = null;
+                capturedImage.style.display = 'none';
+            }
+        });
+
+        // Capture photo from webcam
+        captureBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const ctx = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+
+            canvas.toBlob((blob) => {
+                capturedImageBlob = blob;
+                capturedImage.src = URL.createObjectURL(blob);
+                capturedImage.style.display = 'block';
+                video.style.display = 'none';
+                captureBtn.style.display = 'none';
+                retakeBtn.style.display = 'inline-block';
+                messageEl.textContent = '✅ Photo captured successfully!';
+                messageEl.className = 'success';
+            }, 'image/jpeg', 0.95);
+        });
+
+        // Retake photo
+        retakeBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            capturedImageBlob = null;
+            capturedImage.style.display = 'none';
+            video.style.display = 'block';
+            captureBtn.style.display = 'inline-block';
+            retakeBtn.style.display = 'none';
+            messageEl.textContent = '';
+            messageEl.className = '';
+        });
+
+        // Form submission
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            messageEl.textContent = '⏳ Processing...';
+            messageEl.className = '';
+
+            const name = nameInput.value.trim();
+            if (!name) {
+                messageEl.textContent = '❌ Please enter your name';
+                messageEl.className = 'error';
+                return;
+            }
+
+            // Check if we have either webcam image or file upload
+            if (!capturedImageBlob && !fileInput.files.length) {
+                messageEl.textContent = '❌ Please capture a photo or upload an image';
+                messageEl.className = 'error';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('name', name);
+
+            if (capturedImageBlob) {
+                formData.append('image', capturedImageBlob, 'captured.jpg');
+            } else {
+                formData.append('image', fileInput.files[0]);
+            }
+
+            try {
+                const res = await fetch('/register', {method: 'POST', body: formData});
+                const data = await res.json();
+
+                if (data.success) {
+                    messageEl.textContent = '✅ ' + data.message;
+                    messageEl.className = 'success';
+                    setTimeout(() => window.location.href = '/', 2000);
+                } else {
+                    messageEl.textContent = '❌ ' + (data.message || 'Registration failed');
+                    messageEl.className = 'error';
+                }
+            } catch (err) {
+                messageEl.textContent = '❌ Error: ' + err.message;
+                messageEl.className = 'error';
+            }
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (webcamStream) {
+                webcamStream.getTracks().forEach(track => track.stop());
+            }
+        });
+    </script>
+</body>
+</html>
