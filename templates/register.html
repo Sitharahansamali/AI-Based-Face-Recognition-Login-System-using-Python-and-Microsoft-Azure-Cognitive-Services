@@ -22,10 +22,13 @@
                 <!-- Webcam Auto-Capture Section -->
                 <div id="webcamSection" style="display: none; margin-bottom: 20px;">
                     <video id="webcamVideo" autoplay playsinline style="width: 100%; max-width: 350px; border-radius: 15px; margin-bottom: 10px;"></video>
-                    <div id="captureStatus" style="text-align: center; margin-bottom: 15px; font-weight: 600; color: #667eea;">
-                        📸 Ready to capture
+                    <div id="angleInstruction" style="text-align: center; margin-bottom: 10px; font-weight: 700; color: #667eea; font-size: 1.1em;">
+                        📍 Ready to capture
                     </div>
-                    <button type="button" id="startCaptureBtn" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;">🎬 Start Capturing (5 frames)</button>
+                    <div id="captureStatus" style="text-align: center; margin-bottom: 15px; font-weight: 600; color: #888;">
+                        Press Start to begin capturing from 5 angles
+                    </div>
+                    <button type="button" id="startCaptureBtn" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;">🎬 Start Capturing (5 angles)</button>
                     <button type="button" id="cancelCaptureBtn" class="btn btn-secondary" style="width: 100%; display: none;">❌ Cancel</button>
                     <canvas id="canvas" style="display: none;"></canvas>
                 </div>
@@ -52,12 +55,20 @@
         const startCaptureBtn = document.getElementById('startCaptureBtn');
         const cancelCaptureBtn = document.getElementById('cancelCaptureBtn');
         const captureStatus = document.getElementById('captureStatus');
+        const angleInstruction = document.getElementById('angleInstruction');
         const webcamSection = document.getElementById('webcamSection');
         const nameInput = document.getElementById('name');
         const form = document.getElementById('registerForm');
         const messageEl = document.getElementById('message');
         const FRAMES_TO_CAPTURE = 5;
-        const FRAME_INTERVAL = 800;
+        const FRAME_INTERVAL = 1500;
+        const ANGLES = [
+            { name: '⬅️ Turn Left', emoji: '⬅️', side: 'left' },
+            { name: '↙️ Face Left', emoji: '↙️', side: 'left-front' },
+            { name: '⬆️ Face Forward', emoji: '⬆️', side: 'center' },
+            { name: '↗️ Face Right', emoji: '↗️', side: 'right-front' },
+            { name: '➡️ Turn Right', emoji: '➡️', side: 'right' }
+        ];
 
         // Initialize webcam on page load
         (async () => {
@@ -89,11 +100,12 @@
             capturedFrames = [];
             startCaptureBtn.style.display = 'inline-block';
             cancelCaptureBtn.style.display = 'none';
-            captureStatus.textContent = '📸 Ready to capture';
+            angleInstruction.textContent = '📍 Ready to capture';
+            captureStatus.textContent = 'Press Start to begin capturing from 5 angles';
             messageEl.className = '';
         });
 
-        // Capture frames at intervals
+        // Capture frames from different angles with instructions
         function captureMultipleFrames() {
             const ctx = canvas.getContext('2d');
             let frameCount = 0;
@@ -105,12 +117,17 @@
                         isCapturing = false;
                         startCaptureBtn.style.display = 'inline-block';
                         cancelCaptureBtn.style.display = 'none';
-                        captureStatus.textContent = `✅ Captured ${frameCount} frames!`;
-                        messageEl.textContent = `✅ ${frameCount} face samples ready for registration`;
+                        angleInstruction.textContent = '✅ All angles captured!';
+                        captureStatus.textContent = frameCount + ' face angles ready for registration';
+                        messageEl.textContent = '✅ ' + frameCount + ' multi-angle face samples ready!';
                         messageEl.className = 'success';
                     }
                     return;
                 }
+
+                // Update angle instruction
+                const currentAngle = ANGLES[frameCount];
+                angleInstruction.textContent = currentAngle.name;
 
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
@@ -120,7 +137,12 @@
                     capturedFrames.push(blob);
                     frameCount++;
                     const remaining = FRAMES_TO_CAPTURE - frameCount;
-                    captureStatus.textContent = `📸 Captured ${frameCount}/${FRAMES_TO_CAPTURE} (${remaining} more)`;
+                    if (remaining > 0) {
+                        const nextAngle = ANGLES[frameCount];
+                        captureStatus.textContent = 'Captured ' + frameCount + '/' + FRAMES_TO_CAPTURE + ' - Next: ' + nextAngle.name;
+                    } else {
+                        captureStatus.textContent = 'Captured ' + frameCount + '/' + FRAMES_TO_CAPTURE;
+                    }
                 }, 'image/jpeg', 0.95);
             }, FRAME_INTERVAL);
         }
